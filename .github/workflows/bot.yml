@@ -1,0 +1,70 @@
+name: English Quiz Bot
+
+on:
+  schedule:
+    # Время в UTC. Ежедневная публикация вопроса (поменяйте час под себя):
+    - cron: "0 9 * * *"
+    # Ночное пополнение банка вопросов (работает, пока их меньше TARGET_SIZE):
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Что сделать"
+        type: choice
+        options:
+          - post
+          - generate
+        default: post
+      count:
+        description: "Только для generate: сколько вопросов добавить (пусто = пополнить до TARGET_SIZE)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+# Публикация и генерация не должны работать одновременно
+concurrency:
+  group: quiz-bot
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Опубликовать вопрос в канал
+        if: ${{ (github.event_name == 'schedule' && github.event.schedule == '0 9 * * *') || github.event.inputs.action == 'post' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # При ручном запуске публикуем даже если сегодня уже было
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+        run: python3 bot.py
+
+      - name: Пополнить банк вопросов
+        if: ${{ (github.event_name == 'schedule' && github.event.schedule == '30 2 * * *') || github.event.inputs.action == 'generate' }}
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # Необязательные настройки: Settings → Secrets and variables → Actions → Variables
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          TARGET_SIZE: ${{ vars.TARGET_SIZE || '1000' }}
+          EXPLANATION_LANG: ${{ vars.EXPLANATION_LANG || 'Russian' }}
+          COUNT: ${{ github.event.inputs.count }}
+        run: python3 generate.py
+
+      - name: Сохранить изменения в репозитории
+        if: ${{ always() }}
+        run: |
+          git config user.name "quiz-bot"
+          git config user.email "quiz-bot@users.noreply.github.com"
+          git add questions.json state.json
+          if git diff --cached --quiet; then
+            echo "Изменений нет."
+          else
+            git commit -m "bot: update questions/state"
+            git pull --rebase
+            git push
+          fi
