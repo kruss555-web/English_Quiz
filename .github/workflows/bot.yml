@@ -3,8 +3,8 @@ name: English Quiz Bot
 on:
   schedule:
     # Время в UTC. Две публикации в день (поменяйте часы под себя):
-    - cron: "0 9 * * *"
-    - cron: "0 17 * * *"
+    - cron: "0 8 * * *"
+    - cron: "0 15 * * *"
     # Ночное пополнение банка вопросов (работает, пока их меньше TARGET_SIZE):
     - cron: "30 2 * * *"
   workflow_dispatch:
