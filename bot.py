@@ -20,6 +20,7 @@ TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 FORCE = os.environ.get("FORCE") == "1"      # публиковать, даже если сегодня уже было
 DRY_RUN = os.environ.get("DRY_RUN") == "1"  # только показать, ничего не отправлять
+MAX_PER_DAY = int(os.environ.get("POSTS_PER_DAY") or 1)  # защита от лишних публикаций за день
 
 
 def choose_next(bank, state, rng):
@@ -49,12 +50,15 @@ def choose_next(bank, state, rng):
 
     qid = queue.pop(0)
     done.append(qid)
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    posted_before = state.get("posts_today", 1) if state.get("last_date") == today else 0
     new_state = {
         "cycle": cycle,
         "queue": queue,
         "done": done,
         "last_id": qid,
-        "last_date": datetime.datetime.now(datetime.timezone.utc).date().isoformat(),
+        "last_date": today,
+        "posts_today": posted_before + 1,
     }
     return by_id[qid], new_state
 
@@ -117,8 +121,9 @@ def main():
 
     state = load_json(STATE_PATH, {})
     today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
-    if not FORCE and not DRY_RUN and state.get("last_date") == today:
-        print("Сегодня вопрос уже опубликован, пропускаю.")
+    posted_today = state.get("posts_today", 1) if state.get("last_date") == today else 0
+    if not FORCE and not DRY_RUN and posted_today >= MAX_PER_DAY:
+        print(f"Сегодня уже опубликовано {posted_today} из {MAX_PER_DAY}, пропускаю.")
         return 0
 
     q, new_state = choose_next(good, state, random.Random())
